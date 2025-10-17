@@ -190,7 +190,19 @@ function App() {
 
       {/* Footer */}
       <footer className="mt-12 pb-6 text-center text-sm text-slate-500">
-        <p>Redactify - Secure your codebase before sharing</p>
+        <p>Redactify v1.0.0 - Secure your codebase before sharing</p>
+        <p className="mt-2">
+          <a 
+            href="https://github.com/johlits/redactify" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            GitHub
+          </a>
+          {' • '}
+          <span>100% Client-Side • No Data Collection</span>
+        </p>
       </footer>
     </div>
   )

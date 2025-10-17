@@ -29,11 +29,28 @@ npm install
 
 ## Usage
 
+### Development
+
 ```bash
 npm run dev
 ```
 
 Open your browser to `http://localhost:5173`
+
+### Build for Production
+
+```bash
+npm run build
+```
+
+This creates a **single HTML file** at `dist/index.html` with all JavaScript and CSS inlined. 
+
+✅ **Works with `file://` protocol** - Can be opened directly in any browser!
+✅ **No server needed** - Double-click to run
+✅ **Ultra-portable** - Share as a single file
+
+
+📖 **Full documentation:** See [DOCS.md](DOCS.md) for detailed usage, deployment options, and troubleshooting.
 
 ## How It Works
 
@@ -59,6 +76,33 @@ Open your browser to `http://localhost:5173`
 - **Vite** - Lightning-fast build tool
 - **Lucide React** - Beautiful icons
 
+## 🚀 Deployment
+
+**Web Hosting:**
+- Netlify: Drag `dist/` to [netlify.com/drop](https://app.netlify.com/drop)
+- Vercel: `npx vercel --prod`
+- GitHub Pages: Enable in Settings → Pages
+
+**Desktop App:** See [DOCS.md](DOCS.md#deployment) for Electron packaging.
+
+## 🐛 Troubleshooting
+
+**Monaco Editor not loading?**
+- Requires internet connection for CDN
+- Try a different browser
+
+**Build issues?**
+```bash
+rm -rf node_modules package-lock.json
+npm install
+npm run build
+```
+
+**Performance slow?**
+- Reduce file size
+- Disable some redaction options
+- Use Chrome/Edge for best performance
+
 ## 🔒 Privacy
 
 All processing happens **entirely in your browser**. No code is sent to any server. Your code never leaves your machine.
@@ -70,6 +114,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 ## 🤝 Contributing
 
 Contributions are welcome! Feel free to open issues or submit pull requests.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## ⭐ Show Your Support
 
