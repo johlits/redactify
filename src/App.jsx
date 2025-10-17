@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { FileText, Shield, Download, Upload, Settings } from 'lucide-react'
+import { FileText, Shield, Download, Upload, Settings, Package, Loader2 } from 'lucide-react'
 import CodeEditor from './components/CodeEditor'
 import FileUpload from './components/FileUpload'
 import SettingsPanel from './components/SettingsPanel'
 import StatsPanel from './components/StatsPanel'
 import { redactCode, detectLanguage } from './utils/redactor'
+import { processZipFile } from './utils/zipProcessor'
 
 function App() {
   const [originalCode, setOriginalCode] = useState('')
@@ -22,14 +23,75 @@ function App() {
     redactStrings: true,
     redactUrls: true
   })
+  
+  // Zip processing state
+  const [isZipMode, setIsZipMode] = useState(false)
+  const [zipFile, setZipFile] = useState(null)
+  const [zipBlob, setZipBlob] = useState(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [progress, setProgress] = useState({ current: 0, total: 0, file: '' })
 
   const handleFileUpload = (file, content) => {
+    // Reset zip mode
+    setIsZipMode(false)
+    setZipFile(null)
+    setZipBlob(null)
+    
     setFileName(file.name)
     setOriginalCode(content)
     const detectedLang = detectLanguage(file.name)
     setLanguage(detectedLang)
     setRedactedCode('')
     setStats(null)
+  }
+  
+  const handleZipUpload = async (file) => {
+    // Switch to zip mode
+    setIsZipMode(true)
+    setZipFile(file)
+    setFileName(file.name)
+    setOriginalCode('')
+    setRedactedCode('')
+    setZipBlob(null)
+    setStats(null)
+  }
+  
+  const handleZipRedact = async () => {
+    if (!zipFile) return
+    
+    setIsProcessing(true)
+    setProgress({ current: 0, total: 0, file: '' })
+    
+    try {
+      const result = await processZipFile(
+        zipFile,
+        settings,
+        (current, total, file) => {
+          setProgress({ current, total, file })
+        }
+      )
+      
+      setZipBlob(result.blob)
+      setStats(result.stats)
+    } catch (error) {
+      console.error('Error processing zip:', error)
+      alert('Error processing zip file: ' + error.message)
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+  
+  const handleZipDownload = () => {
+    if (!zipBlob) return
+    
+    const url = URL.createObjectURL(zipBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `redacted_${fileName}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   const handleRedact = () => {
@@ -102,7 +164,7 @@ function App() {
 
         {/* File Upload */}
         <div className="mb-6">
-          <FileUpload onFileUpload={handleFileUpload} />
+          <FileUpload onFileUpload={handleFileUpload} onZipUpload={handleZipUpload} />
         </div>
 
         {/* Action Buttons */}
@@ -112,39 +174,101 @@ function App() {
             <span className="text-sm font-medium text-white bg-slate-800 px-3 py-1 rounded">
               {fileName}
             </span>
-            <span className="text-sm text-slate-400">Language:</span>
-            <span className="text-sm font-medium text-blue-400 bg-blue-500/10 px-3 py-1 rounded">
-              {language}
-            </span>
+            {isZipMode && (
+              <span className="flex items-center space-x-1 text-sm font-medium text-purple-400 bg-purple-500/10 px-3 py-1 rounded">
+                <Package className="w-3 h-3" />
+                <span>Bulk Mode</span>
+              </span>
+            )}
+            {!isZipMode && (
+              <>
+                <span className="text-sm text-slate-400">Language:</span>
+                <span className="text-sm font-medium text-blue-400 bg-blue-500/10 px-3 py-1 rounded">
+                  {language}
+                </span>
+              </>
+            )}
           </div>
           <div className="flex items-center space-x-3">
-            <button
-              onClick={handleRedact}
-              disabled={!originalCode}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
-            >
-              <Shield className="w-4 h-4" />
-              <span>Redact Code</span>
-            </button>
-            <button
-              onClick={handleDownload}
-              disabled={!redactedCode}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
-            >
-              <Download className="w-4 h-4" />
-              <span>Download</span>
-            </button>
+            {isZipMode ? (
+              <>
+                <button
+                  onClick={handleZipRedact}
+                  disabled={!zipFile || isProcessing}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+                >
+                  {isProcessing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Shield className="w-4 h-4" />
+                  )}
+                  <span>{isProcessing ? 'Processing...' : 'Redact ZIP'}</span>
+                </button>
+                <button
+                  onClick={handleZipDownload}
+                  disabled={!zipBlob}
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download ZIP</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleRedact}
+                  disabled={!originalCode}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+                >
+                  <Shield className="w-4 h-4" />
+                  <span>Redact Code</span>
+                </button>
+                <button
+                  onClick={handleDownload}
+                  disabled={!redactedCode}
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
+
+        {/* Progress Indicator */}
+        {isProcessing && (
+          <div className="mb-6 bg-slate-800/50 rounded-lg border border-slate-700 p-6">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-2">
+                <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+                <h3 className="text-lg font-semibold text-white">Processing Files...</h3>
+              </div>
+              <span className="text-sm text-slate-400">
+                {progress.current} / {progress.total}
+              </span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-2 mb-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${progress.total > 0 ? (progress.current / progress.total) * 100 : 0}%` }}
+              />
+            </div>
+            <p className="text-sm text-slate-400 truncate">
+              Current: {progress.file}
+            </p>
+          </div>
+        )}
 
         {/* Stats Panel */}
         {stats && (
           <div className="mb-6">
-            <StatsPanel stats={stats} />
+            <StatsPanel stats={stats} isZipMode={isZipMode} />
           </div>
         )}
 
-        {/* Code Editors */}
+        {/* Code Editors - Only show in single file mode */}
+        {!isZipMode && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Original Code */}
           <div className="bg-slate-800/50 rounded-lg border border-slate-700 overflow-hidden">
@@ -186,6 +310,39 @@ function App() {
             />
           </div>
         </div>
+        )}
+        
+        {/* Zip Mode Info */}
+        {isZipMode && !isProcessing && !zipBlob && (
+          <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-8 text-center">
+            <Package className="w-16 h-16 text-purple-400 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Bulk Processing Mode</h3>
+            <p className="text-slate-400 mb-4">
+              Click "Redact ZIP" to process all code files in the archive.
+            </p>
+            <p className="text-sm text-slate-500">
+              Binary files and common directories (node_modules, .git, etc.) will be skipped.
+            </p>
+          </div>
+        )}
+        
+        {/* Zip Complete */}
+        {isZipMode && zipBlob && (
+          <div className="bg-slate-800/50 rounded-lg border border-green-700 p-8 text-center">
+            <Shield className="w-16 h-16 text-green-400 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-white mb-2">Redaction Complete!</h3>
+            <p className="text-slate-400 mb-4">
+              Your redacted codebase is ready for download.
+            </p>
+            <button
+              onClick={handleZipDownload}
+              className="inline-flex items-center space-x-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium"
+            >
+              <Download className="w-5 h-5" />
+              <span>Download Redacted ZIP</span>
+            </button>
+          </div>
+        )}
       </main>
 
       {/* Footer */}

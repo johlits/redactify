@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Upload, File } from 'lucide-react'
 
-function FileUpload({ onFileUpload }) {
+function FileUpload({ onFileUpload, onZipUpload }) {
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
 
@@ -33,6 +33,15 @@ function FileUpload({ onFileUpload }) {
   }
 
   const handleFile = (file) => {
+    // Check if it's a zip file
+    if (file.name.toLowerCase().endsWith('.zip')) {
+      if (onZipUpload) {
+        onZipUpload(file)
+      }
+      return
+    }
+    
+    // Handle regular text files
     const reader = new FileReader()
     reader.onload = (e) => {
       onFileUpload(file, e.target.result)
@@ -64,7 +73,7 @@ function FileUpload({ onFileUpload }) {
         type="file"
         onChange={handleFileSelect}
         className="hidden"
-        accept=".js,.jsx,.ts,.tsx,.py,.java,.cpp,.c,.cs,.go,.rs,.rb,.php,.swift,.kt,.txt"
+        accept=".js,.jsx,.ts,.tsx,.py,.java,.cpp,.c,.cs,.go,.rs,.rb,.php,.swift,.kt,.txt,.zip"
       />
       <div className="flex flex-col items-center space-y-3">
         <div className={`
@@ -75,10 +84,13 @@ function FileUpload({ onFileUpload }) {
         </div>
         <div>
           <p className="text-white font-medium mb-1">
-            Drop a file here or click to browse
+            Drop a file or ZIP here or click to browse
           </p>
           <p className="text-sm text-slate-400">
-            Supports: JS, TS, Python, Java, C++, Go, Rust, and more
+            Single files: JS, TS, Python, Java, C++, Go, Rust, and more
+          </p>
+          <p className="text-sm text-slate-400">
+            Bulk processing: Upload a ZIP of your entire codebase
           </p>
         </div>
       </div>
