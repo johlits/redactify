@@ -52,25 +52,140 @@ function extractVariableNames(code, language = 'javascript') {
   
   // JavaScript/TypeScript patterns
   if (language === 'javascript' || language === 'typescript') {
-    // const, let, var declarations
-    const declPattern = /(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/g;
+    // Reserved keywords that should never be treated as variables
+    const reservedKeywords = new Set([
+      'const', 'let', 'var', 'function', 'class', 'if', 'else', 'for', 'while',
+      'do', 'switch', 'case', 'break', 'continue', 'return', 'try', 'catch',
+      'finally', 'throw', 'new', 'delete', 'typeof', 'instanceof', 'void',
+      'this', 'super', 'extends', 'import', 'export', 'default', 'async',
+      'await', 'yield', 'static', 'get', 'set', 'constructor', 'from', 'as'
+    ]);
+    
+    // const, let, var declarations (simple)
+    const declPattern = /(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)(?:\s*[=;,]|\s*$)/g;
     let match;
     while ((match = declPattern.exec(code)) !== null) {
+      if (!reservedKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+    
+    // Destructuring patterns - extract all identifiers
+    // Object destructuring: const { a, b: c, d } = ...
+    const objDestructPattern = /(?:const|let|var)\s*\{([^}]+)\}/g;
+    while ((match = objDestructPattern.exec(code)) !== null) {
+      const content = match[1];
+      // Extract all identifiers from destructuring
+      // Split by comma and extract variable names
+      const parts = content.split(',');
+      parts.forEach(part => {
+        // Handle both { a } and { a: b } patterns
+        const colonSplit = part.split(':');
+        colonSplit.forEach(segment => {
+          const identMatch = segment.match(/([a-zA-Z_$][a-zA-Z0-9_$]*)/);
+          if (identMatch && !reservedKeywords.has(identMatch[1])) {
+            variables.add(identMatch[1]);
+          }
+        });
+      });
+    }
+    
+    // Array destructuring: const [a, b, ...rest] = ...
+    const arrDestructPattern = /(?:const|let|var)\s*\[([^\]]+)\]/g;
+    while ((match = arrDestructPattern.exec(code)) !== null) {
+      const content = match[1];
+      // Match all identifiers including rest parameters
+      const identifiers = content.match(/\.{0,3}([a-zA-Z_$][a-zA-Z0-9_$]*)/g);
+      if (identifiers) {
+        identifiers.forEach(id => {
+          const cleanId = id.replace(/^\.{3}/, '').trim();
+          if (cleanId && !reservedKeywords.has(cleanId)) {
+            variables.add(cleanId);
+          }
+        });
+      }
+    }
+    
+    // Function parameters (including destructuring in params)
+    const funcPattern = /function\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(([^)]*)\)/g;
+    while ((match = funcPattern.exec(code)) !== null) {
+      extractParameterNames(match[1], variables, reservedKeywords);
+    }
+    
+    // Arrow function parameters (all forms)
+    // Form 1: const x = (a, b) => ...
+    const arrowPattern1 = /(?:const|let|var)\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*=\s*\(([^)]*)\)\s*=>/g;
+    while ((match = arrowPattern1.exec(code)) !== null) {
+      extractParameterNames(match[1], variables, reservedKeywords);
+    }
+    
+    // Form 2: const x = a => ... (single param, no parens)
+    const arrowPattern2 = /(?:const|let|var)\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*=\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*=>/g;
+    while ((match = arrowPattern2.exec(code)) !== null) {
+      if (!reservedKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+    
+    // Arrow functions in callbacks: .map(x => ...), .filter(({ a, b }) => ...)
+    const callbackPattern = /\.(?:map|filter|reduce|forEach|find|some|every)\s*\(\s*(?:\(([^)]*)\)|([a-zA-Z_$][a-zA-Z0-9_$]*))\s*=>/g;
+    while ((match = callbackPattern.exec(code)) !== null) {
+      const params = match[1] || match[2];
+      if (params) extractParameterNames(params, variables, reservedKeywords);
+    }
+    
+    // Method parameters: methodName(param1, param2) { ... }
+    // This catches parameters from object methods and class methods
+    const methodParamPattern = /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(([^)]*)\)\s*\{/g;
+    while ((match = methodParamPattern.exec(code)) !== null) {
+      // Only extract parameters, not the method name (that's handled in function extraction)
+      if (match[2]) {
+        extractParameterNames(match[2], variables, reservedKeywords);
+      }
+    }
+    
+    // For-of and for-in loops: for (const item of items)
+    const forOfPattern = /for\s*\(\s*(?:const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s+(?:of|in)\s+/g;
+    while ((match = forOfPattern.exec(code)) !== null) {
       variables.add(match[1]);
     }
     
-    // Function parameters
-    const funcPattern = /function\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(([^)]*)\)/g;
-    while ((match = funcPattern.exec(code)) !== null) {
-      const params = match[1].split(',').map(p => p.trim().split(/[=:\s]/)[0]);
-      params.forEach(p => p && variables.add(p));
+    // Catch blocks: catch (error)
+    const catchPattern = /catch\s*\(\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\)/g;
+    while ((match = catchPattern.exec(code)) !== null) {
+      variables.add(match[1]);
     }
     
-    // Arrow function parameters
-    const arrowPattern = /(?:const|let|var)\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*=\s*\(([^)]*)\)\s*=>/g;
-    while ((match = arrowPattern.exec(code)) !== null) {
-      const params = match[1].split(',').map(p => p.trim().split(/[=:\s]/)[0]);
-      params.forEach(p => p && variables.add(p));
+    // Import statements: import { a, b as c } from '...'
+    const importPattern = /import\s*\{([^}]+)\}\s*from/g;
+    while ((match = importPattern.exec(code)) !== null) {
+      const imports = match[1].split(',');
+      imports.forEach(imp => {
+        const parts = imp.trim().split(/\s+as\s+/);
+        // Get the local name (after 'as' if present, otherwise the import name)
+        const localName = parts.length > 1 ? parts[1].trim() : parts[0].trim();
+        if (localName && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(localName)) {
+          variables.add(localName);
+        }
+      });
+    }
+    
+    // Default imports: import x from '...'
+    const defaultImportPattern = /import\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s+from/g;
+    while ((match = defaultImportPattern.exec(code)) !== null) {
+      variables.add(match[1]);
+    }
+    
+    // Export statements: export { a, b }
+    const exportPattern = /export\s*\{([^}]+)\}/g;
+    while ((match = exportPattern.exec(code)) !== null) {
+      const exports = match[1].split(',');
+      exports.forEach(exp => {
+        const name = exp.trim().split(/\s+as\s+/)[0].trim();
+        if (name && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name)) {
+          variables.add(name);
+        }
+      });
     }
   }
   
@@ -83,7 +198,228 @@ function extractVariableNames(code, language = 'javascript') {
     }
   }
   
+  // C# patterns
+  if (language === 'csharp') {
+    const csharpKeywords = new Set([
+      'abstract', 'as', 'base', 'bool', 'break', 'byte', 'case', 'catch', 'char',
+      'checked', 'class', 'const', 'continue', 'decimal', 'default', 'delegate',
+      'do', 'double', 'else', 'enum', 'event', 'explicit', 'extern', 'false',
+      'finally', 'fixed', 'float', 'for', 'foreach', 'goto', 'if', 'implicit',
+      'in', 'int', 'interface', 'internal', 'is', 'lock', 'long', 'namespace',
+      'new', 'null', 'object', 'operator', 'out', 'override', 'params', 'private',
+      'protected', 'public', 'readonly', 'ref', 'return', 'sbyte', 'sealed',
+      'short', 'sizeof', 'stackalloc', 'static', 'string', 'struct', 'switch',
+      'this', 'throw', 'true', 'try', 'typeof', 'uint', 'ulong', 'unchecked',
+      'unsafe', 'ushort', 'using', 'virtual', 'void', 'volatile', 'while', 'var'
+    ]);
+    
+    // Variable declarations: var x = ..., int y = ..., string name = ...
+    const csharpVarPattern = /(?:var|int|string|bool|double|float|decimal|long|short|byte|char|object|dynamic)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[=;,]/g;
+    let match;
+    while ((match = csharpVarPattern.exec(code)) !== null) {
+      if (!csharpKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+    
+    // Method parameters: void Method(int param1, string param2)
+    const csharpMethodPattern = /(?:void|int|string|bool|double|float|decimal|long|short|byte|char|object|Task|async\s+Task|[A-Z][a-zA-Z0-9_<>]*)\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(([^)]*)\)/g;
+    while ((match = csharpMethodPattern.exec(code)) !== null) {
+      if (match[1]) {
+        // Extract parameter names
+        const params = match[1].split(',');
+        params.forEach(param => {
+          const paramMatch = param.trim().match(/(?:ref|out|params)?\s*(?:[a-zA-Z_][a-zA-Z0-9_<>]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
+          if (paramMatch && !csharpKeywords.has(paramMatch[1])) {
+            variables.add(paramMatch[1]);
+          }
+        });
+      }
+    }
+    
+    // Foreach loops: foreach (var item in items)
+    const foreachPattern = /foreach\s*\(\s*(?:var|[a-zA-Z_][a-zA-Z0-9_<>]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+in\s+/g;
+    while ((match = foreachPattern.exec(code)) !== null) {
+      if (!csharpKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+    
+    // For loops: for (int i = 0; ...)
+    const forPattern = /for\s*\(\s*(?:var|int|long)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=/g;
+    while ((match = forPattern.exec(code)) !== null) {
+      if (!csharpKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+    
+    // Catch blocks: catch (Exception ex)
+    const catchPattern = /catch\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\)/g;
+    while ((match = catchPattern.exec(code)) !== null) {
+      if (!csharpKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+    
+    // Lambda parameters: (x, y) => ..., x => ...
+    const lambdaPattern = /(?:\(([^)]+)\)|([a-zA-Z_][a-zA-Z0-9_]*))\s*=>/g;
+    while ((match = lambdaPattern.exec(code)) !== null) {
+      const params = match[1] || match[2];
+      if (params) {
+        params.split(',').forEach(param => {
+          const paramName = param.trim().split(/\s+/).pop();
+          if (paramName && !csharpKeywords.has(paramName)) {
+            variables.add(paramName);
+          }
+        });
+      }
+    }
+    
+    // Using statements: using var stream = ...
+    const usingPattern = /using\s*\(\s*(?:var|[a-zA-Z_][a-zA-Z0-9_<>]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=/g;
+    while ((match = usingPattern.exec(code)) !== null) {
+      if (!csharpKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+  }
+  
+  // PHP patterns
+  if (language === 'php') {
+    const phpKeywords = new Set([
+      'abstract', 'and', 'array', 'as', 'break', 'callable', 'case', 'catch',
+      'class', 'clone', 'const', 'continue', 'declare', 'default', 'die', 'do',
+      'echo', 'else', 'elseif', 'empty', 'enddeclare', 'endfor', 'endforeach',
+      'endif', 'endswitch', 'endwhile', 'eval', 'exit', 'extends', 'final',
+      'finally', 'fn', 'for', 'foreach', 'function', 'global', 'goto', 'if',
+      'implements', 'include', 'include_once', 'instanceof', 'insteadof',
+      'interface', 'isset', 'list', 'match', 'namespace', 'new', 'or', 'print',
+      'private', 'protected', 'public', 'readonly', 'require', 'require_once',
+      'return', 'static', 'switch', 'throw', 'trait', 'try', 'unset', 'use',
+      'var', 'while', 'xor', 'yield', 'yield from'
+    ]);
+    
+    // PHP variables: $variableName
+    const phpVarPattern = /\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    let match;
+    while ((match = phpVarPattern.exec(code)) !== null) {
+      // Exclude superglobals
+      const superglobals = ['GLOBALS', '_SERVER', '_GET', '_POST', '_FILES', '_COOKIE', '_SESSION', '_REQUEST', '_ENV', 'this'];
+      if (!superglobals.includes(match[1]) && !phpKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+    
+    // Function parameters: function name($param1, $param2)
+    const phpFuncPattern = /function\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(([^)]*)\)/g;
+    while ((match = phpFuncPattern.exec(code)) !== null) {
+      if (match[1]) {
+        const params = match[1].match(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g);
+        if (params) {
+          params.forEach(param => {
+            const name = param.substring(1); // Remove $
+            if (!phpKeywords.has(name)) {
+              variables.add(name);
+            }
+          });
+        }
+      }
+    }
+    
+    // Arrow functions: fn($x) => ...
+    const phpArrowPattern = /fn\s*\(([^)]*)\)\s*=>/g;
+    while ((match = phpArrowPattern.exec(code)) !== null) {
+      if (match[1]) {
+        const params = match[1].match(/\$([a-zA-Z_][a-zA-Z0-9_]*)/g);
+        if (params) {
+          params.forEach(param => {
+            const name = param.substring(1);
+            if (!phpKeywords.has(name)) {
+              variables.add(name);
+            }
+          });
+        }
+      }
+    }
+    
+    // Foreach loops: foreach ($items as $item)
+    const foreachPattern = /foreach\s*\([^)]*\s+as\s+\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    while ((match = foreachPattern.exec(code)) !== null) {
+      if (!phpKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+    
+    // Foreach with key: foreach ($items as $key => $value)
+    const foreachKeyPattern = /foreach\s*\([^)]*\s+as\s+\$([a-zA-Z_][a-zA-Z0-9_]*)\s*=>\s*\$([a-zA-Z_][a-zA-Z0-9_]*)/g;
+    while ((match = foreachKeyPattern.exec(code)) !== null) {
+      if (!phpKeywords.has(match[1])) variables.add(match[1]);
+      if (!phpKeywords.has(match[2])) variables.add(match[2]);
+    }
+    
+    // Catch blocks: catch (Exception $e)
+    const catchPattern = /catch\s*\(\s*[a-zA-Z_\\][a-zA-Z0-9_\\]*\s+\$([a-zA-Z_][a-zA-Z0-9_]*)\s*\)/g;
+    while ((match = catchPattern.exec(code)) !== null) {
+      if (!phpKeywords.has(match[1])) {
+        variables.add(match[1]);
+      }
+    }
+  }
+  
   return Array.from(variables);
+}
+
+/**
+ * Helper function to extract parameter names from function parameter strings
+ * Handles destructuring, default values, and rest parameters
+ */
+function extractParameterNames(paramString, variables, reservedKeywords = new Set()) {
+  if (!paramString || !paramString.trim()) return;
+  
+  // Handle object destructuring in parameters: { a, b: c, d }
+  const objDestructMatches = paramString.match(/\{([^}]+)\}/g);
+  if (objDestructMatches) {
+    objDestructMatches.forEach(match => {
+      const content = match.slice(1, -1); // Remove { }
+      const parts = content.split(',');
+      parts.forEach(part => {
+        const colonSplit = part.split(':');
+        colonSplit.forEach(segment => {
+          const identMatch = segment.match(/([a-zA-Z_$][a-zA-Z0-9_$]*)/);
+          if (identMatch && !reservedKeywords.has(identMatch[1])) {
+            variables.add(identMatch[1]);
+          }
+        });
+      });
+    });
+  }
+  
+  // Handle array destructuring in parameters: [a, b, ...rest]
+  const arrDestructMatches = paramString.match(/\[([^\]]+)\]/g);
+  if (arrDestructMatches) {
+    arrDestructMatches.forEach(match => {
+      const content = match.slice(1, -1); // Remove [ ]
+      const identifiers = content.match(/\.{0,3}([a-zA-Z_$][a-zA-Z0-9_$]*)/g);
+      if (identifiers) {
+        identifiers.forEach(id => {
+          const cleanId = id.replace(/^\.{3}/, '').trim();
+          if (cleanId && !reservedKeywords.has(cleanId)) {
+            variables.add(cleanId);
+          }
+        });
+      }
+    });
+  }
+  
+  // Handle simple parameters (remove destructuring patterns first)
+  const simpleParams = paramString
+    .replace(/\{[^}]+\}/g, '') // Remove object destructuring
+    .replace(/\[[^\]]+\]/g, '') // Remove array destructuring
+    .split(',')
+    .map(p => p.trim().split(/[=:\s]/)[0].replace(/\.{3}/, '').trim())
+    .filter(p => p && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(p) && !reservedKeywords.has(p));
+  
+  simpleParams.forEach(p => variables.add(p));
 }
 
 /**
@@ -129,19 +465,32 @@ function extractClassNames(code, language = 'javascript') {
 function extractFunctionNames(code, language = 'javascript') {
   const functions = new Set();
   
+  // Keywords that should never be treated as function names
+  const keywords = new Set([
+    'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'break', 'continue',
+    'return', 'try', 'catch', 'finally', 'throw', 'new', 'delete', 'typeof',
+    'instanceof', 'void', 'this', 'super', 'class', 'extends', 'import', 'export',
+    'default', 'const', 'let', 'var', 'function', 'async', 'await', 'yield',
+    'static', 'get', 'set', 'constructor'
+  ]);
+  
   // JavaScript/TypeScript patterns
   if (language === 'javascript' || language === 'typescript') {
     // function declarations
     const funcPattern = /function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\(/g;
     let match;
     while ((match = funcPattern.exec(code)) !== null) {
-      functions.add(match[1]);
+      if (!keywords.has(match[1])) {
+        functions.add(match[1]);
+      }
     }
     
-    // method definitions
+    // method definitions (be more careful to avoid false positives)
     const methodPattern = /([a-zA-Z_$][a-zA-Z0-9_$]*)\s*\([^)]*\)\s*\{/g;
     while ((match = methodPattern.exec(code)) !== null) {
-      functions.add(match[1]);
+      if (!keywords.has(match[1])) {
+        functions.add(match[1]);
+      }
     }
   }
   
@@ -154,6 +503,39 @@ function extractFunctionNames(code, language = 'javascript') {
     }
   }
   
+  // C# patterns
+  if (language === 'csharp') {
+    // Method declarations: public void MethodName(...), async Task<T> MethodName(...)
+    const csharpMethodPattern = /(?:public|private|protected|internal|static|virtual|override|async)?\s*(?:void|int|string|bool|double|float|decimal|long|short|byte|char|object|Task|Task<[^>]+>|[A-Z][a-zA-Z0-9_<>]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+    let match;
+    while ((match = csharpMethodPattern.exec(code)) !== null) {
+      // Exclude common keywords and property getters/setters
+      const excluded = ['get', 'set', 'add', 'remove', 'if', 'while', 'for', 'foreach', 'switch', 'catch', 'using'];
+      if (!excluded.includes(match[1])) {
+        functions.add(match[1]);
+      }
+    }
+  }
+  
+  // PHP patterns
+  if (language === 'php') {
+    // Function declarations: function functionName(...)
+    const phpFuncPattern = /function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+    let match;
+    while ((match = phpFuncPattern.exec(code)) !== null) {
+      functions.add(match[1]);
+    }
+    
+    // Method declarations: public function methodName(...)
+    const phpMethodPattern = /(?:public|private|protected|static)?\s*function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+    while ((match = phpMethodPattern.exec(code)) !== null) {
+      // Exclude magic methods
+      if (!match[1].startsWith('__')) {
+        functions.add(match[1]);
+      }
+    }
+  }
+  
   return Array.from(functions);
 }
 
@@ -163,6 +545,13 @@ function extractFunctionNames(code, language = 'javascript') {
 function isBusinessVariable(varName) {
   const lowerName = varName.toLowerCase();
   return BUSINESS_TERMS.some(term => lowerName.includes(term));
+}
+
+/**
+ * Escapes special regex characters in a string
+ */
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -224,7 +613,7 @@ export function redactCode(code, options = {}) {
       nameMap.set(className, genericName);
       
       // Replace whole word only
-      const regex = new RegExp(`\\b${className}\\b`, 'g');
+      const regex = new RegExp(`\\b${escapeRegex(className)}\\b`, 'g');
       const beforeCount = (redactedCode.match(regex) || []).length;
       if (beforeCount > 0) {
         redactedCode = redactedCode.replace(regex, genericName);
@@ -250,7 +639,7 @@ export function redactCode(code, options = {}) {
       nameMap.set(funcName, genericName);
       
       // Replace whole word only
-      const regex = new RegExp(`\\b${funcName}\\b`, 'g');
+      const regex = new RegExp(`\\b${escapeRegex(funcName)}\\b`, 'g');
       const beforeCount = (redactedCode.match(regex) || []).length;
       if (beforeCount > 0) {
         redactedCode = redactedCode.replace(regex, genericName);
@@ -274,8 +663,8 @@ export function redactCode(code, options = {}) {
       const genericName = generateGenericName(varName, index + 1, nameMap);
       nameMap.set(varName, genericName);
       
-      // Replace whole word only
-      const regex = new RegExp(`\\b${varName}\\b`, 'g');
+      // Replace whole word only - escape special regex characters
+      const regex = new RegExp(`\\b${escapeRegex(varName)}\\b`, 'g');
       const beforeCount = (redactedCode.match(regex) || []).length;
       if (beforeCount > 0) {
         redactedCode = redactedCode.replace(regex, genericName);
@@ -334,6 +723,15 @@ export function redactCode(code, options = {}) {
     
     // Python comments
     if (language === 'python') {
+      redactedCode = redactedCode.replace(
+        /#.*$/gm,
+        '# Generic comment'
+      );
+    }
+    
+    // PHP comments
+    if (language === 'php') {
+      // PHP also uses # for single-line comments
       redactedCode = redactedCode.replace(
         /#.*$/gm,
         '# Generic comment'

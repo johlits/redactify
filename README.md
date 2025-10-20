@@ -12,6 +12,7 @@
 
 - 🔒 **Secret Detection**: Automatically identifies and redacts API keys, passwords, tokens, private keys, and credentials
 - 🎯 **Complete Identifier Redaction**: Replace ALL classes, functions, and variables with generic names
+- 🌐 **Multi-Language Support**: Full support for JavaScript/TypeScript, C#, and PHP (see [LANGUAGE_SUPPORT.md](LANGUAGE_SUPPORT.md))
 - 🔗 **URL Redaction**: Replace all URLs with generic placeholders
 - 💬 **Comment Removal**: Strip or genericize all comments
 - 📝 **String Sanitization**: Redact business-specific string literals
